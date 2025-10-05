@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm
+*.iml
+
+# Environment variables
+.env
+.env.local
+
+# Streamlit
+.streamlit/
+
+# Model files and caches
+*.pt
+*.pth
+*.bin
+*.onnx
+models/
+checkpoints/
+
+# HuggingFace cache
+.cache/
+transformers_cache/
+
+# FAISS indexes
+*.faiss
+*.index
+
+# Uploaded files and temporary data
+uploads/
+temp/
+*.pdf
+data/
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project specific
+chat_history.txt
+performance_report.csv
+*.csv
