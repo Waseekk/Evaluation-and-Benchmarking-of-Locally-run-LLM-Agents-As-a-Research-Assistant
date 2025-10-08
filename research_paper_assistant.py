@@ -5,12 +5,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import networkx as nx
 from typing import Dict
+from datetime import datetime
 from pdf_processor import PDFProcessor
 from citation_analyzer import EnhancedCitationAnalyzer
 from structure_analyzer import StructureAnalyzer
 from model_comparison_analyzer import ModelComparisonAnalyzer
 from enhanced_chat_interface_1 import EnhancedChatInterface
 from performance_analyzer import PerformanceAnalyzer
+from excel_exporter import ExcelExporter
 
 class ResearchPaperAssistant:
     """Enhanced main class for the Research Paper Analysis Assistant."""
@@ -103,6 +105,7 @@ class ResearchPaperAssistant:
         self.model_analyzer = ModelComparisonAnalyzer()
         self.chat_interface = EnhancedChatInterface()
         self.performance_analyzer = PerformanceAnalyzer()
+        self.excel_exporter = ExcelExporter()
 
     def setup_session_state(self):
         """Initializes enhanced session state variables."""
@@ -114,6 +117,14 @@ class ResearchPaperAssistant:
             st.session_state.pdf_metadata = None
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = []
+        
+        # Add session state for Excel export
+        if "citation_results" not in st.session_state:
+            st.session_state.citation_results = None
+        if "structure_results" not in st.session_state:
+            st.session_state.structure_results = None
+        if "performance_results" not in st.session_state:
+            st.session_state.performance_results = None
     
     def create_sidebar(self):
         """Creates enhanced configuration sidebar."""
@@ -143,6 +154,61 @@ class ResearchPaperAssistant:
                 "show_citation_graph": show_citation_graph,
                 "show_structure_radar": show_structure_radar
             }
+
+    def create_export_section(self):
+        """Creates a section for exporting all analysis data to Excel."""
+        st.sidebar.divider()
+        st.sidebar.markdown("### 📥 Export Data")
+        
+        # Check if any analysis has been performed
+        has_data = any([
+            st.session_state.citation_results,
+            st.session_state.structure_results,
+            st.session_state.model_responses,
+            st.session_state.performance_results
+        ])
+        
+        if has_data:
+            st.sidebar.success("✓ Analysis data available")
+            
+            # Show sheet summary in an expander
+            with st.sidebar.expander("📋 Excel Sheets Preview"):
+                sheet_summary = self.excel_exporter.get_sheet_summary()
+                for sheet_name, description in list(sheet_summary.items())[:5]:
+                    st.caption(f"**{sheet_name}**: {description}")
+                st.caption(f"*...and {len(sheet_summary) - 5} more sheets*")
+            
+            if st.sidebar.button("📊 Export All Data to Excel", type="primary"):
+                with st.spinner("Generating Excel file..."):
+                    try:
+                        # Create comprehensive export
+                        excel_buffer = self.excel_exporter.create_comprehensive_export(
+                            citation_data=st.session_state.citation_results,
+                            structure_data=st.session_state.structure_results,
+                            model_results=st.session_state.model_responses,
+                            performance_results=st.session_state.performance_results,
+                            paper_metadata=st.session_state.pdf_metadata
+                        )
+                        
+                        # Generate filename with timestamp
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"paper_analysis_{timestamp}.xlsx"
+                        
+                        # Create download button
+                        st.sidebar.download_button(
+                            label="⬇️ Download Excel File",
+                            data=excel_buffer,
+                            file_name=filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_excel"
+                        )
+                        
+                        st.sidebar.success(f"✅ Excel file ready! ({len(self.excel_exporter.get_sheet_summary())} sheets)")
+                        
+                    except Exception as e:
+                        st.sidebar.error(f"Error generating Excel: {str(e)}")
+        else:
+            st.sidebar.info("Run an analysis first to enable export")
 
     def display_pdf_metadata(self, metadata: Dict):
         """
@@ -345,8 +411,6 @@ class ResearchPaperAssistant:
                     'number': 'Table #',
                     'caption': 'Caption',
                     'page': 'Page'
-                  #  'rows': 'Rows',
-                  #  'cols': 'Columns'
                 })
                 
                 st.dataframe(
@@ -357,7 +421,8 @@ class ResearchPaperAssistant:
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-    def display_performance_analysis(self, text: str):
+    def display_performance_analysis(self, text: str) -> Dict:
+        """Display performance analysis and return results."""
         st.subheader("🚀 Performance Analysis")
         with st.spinner("Analyzing model performance..."):
             results = self.performance_analyzer.analyze_model_performance(
@@ -380,7 +445,8 @@ class ResearchPaperAssistant:
                 "text/csv",
                 key='download-performance-csv'
             )
-    # Continuation of ResearchPaperAssistant class
+        
+        return results
     
     def display_analysis_results(self, text: str, settings: Dict):
         """Displays enhanced analysis results with all new features."""
@@ -389,6 +455,10 @@ class ResearchPaperAssistant:
         if settings["analyze_citations"]:
             with st.spinner("Analyzing citations..."):
                 citation_metrics = self.citation_analyzer.extract_citations(text)
+                
+                # Store in session state for export
+                st.session_state.citation_results = citation_metrics
+                
                 st.markdown('<div class="metric-container">', unsafe_allow_html=True)
                 st.subheader("📚 Citation Analysis")
                 
@@ -499,6 +569,10 @@ class ResearchPaperAssistant:
         if settings["analyze_structure"]:
             with st.spinner("Analyzing structure..."):
                 structure_metrics = self.structure_analyzer.analyze_structure(text)
+                
+                # Store in session state for export
+                st.session_state.structure_results = structure_metrics
+                
                 st.markdown('<div class="metric-container">', unsafe_allow_html=True)
                 st.subheader("🏗️ Structure Analysis")
                 
@@ -534,98 +608,101 @@ class ResearchPaperAssistant:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
         
-            # Model Comparison with Enhanced Metrics
-            if settings["compare_models"]:
-                st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-                st.subheader("🤖 Enhanced Model Analysis")
+        # Model Comparison with Enhanced Metrics
+        if settings["compare_models"]:
+            st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+            st.subheader("🤖 Enhanced Model Analysis")
+            
+            # Progress tracking
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Estimate token count for progress calculation
+            estimated_tokens = self.model_analyzer.estimate_token_count(text)
+            will_chunk = estimated_tokens > 3000
+            
+            if will_chunk:
+                chunks_count = len(self.model_analyzer._chunk_text(text, max_length=1000))
+                status_text.text(f"📄 Paper size: {estimated_tokens} tokens → splitting into {chunks_count} chunks")
+            else:
+                status_text.text(f"📄 Paper size: {estimated_tokens} tokens → processing as single chunk")
+            
+            import time
+            time.sleep(1)
+            
+            # Model names for progress tracking
+            model_names = list(self.model_analyzer.models.keys())
+            total_models = len(model_names)
+            
+            # Process with progress updates
+            model_results = {}
+            for idx, model_name in enumerate(model_names):
+                # Update progress
+                progress_percentage = (idx) / total_models
+                progress_bar.progress(progress_percentage)
+                status_text.text(f"🤖 Analyzing with {model_name}... ({idx + 1}/{total_models})")
                 
-                # ⭐ ADD: Progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Estimate token count for progress calculation
-                estimated_tokens = self.model_analyzer.estimate_token_count(text)
-                will_chunk = estimated_tokens > 3000
-                
-                if will_chunk:
-                    chunks_count = len(self.model_analyzer._chunk_text(text, max_length=1000))
-                    status_text.text(f"📄 Paper size: {estimated_tokens} tokens → splitting into {chunks_count} chunks")
-                else:
-                    status_text.text(f"📄 Paper size: {estimated_tokens} tokens → processing as single chunk")
-                
-                import time
-                time.sleep(1)  # Brief pause to show status
-                
-                # Model names for progress tracking
-                model_names = list(self.model_analyzer.models.keys())
-                total_models = len(model_names)
-                
-                # Process with progress updates
-                model_results = {}
-                for idx, model_name in enumerate(model_names):
-                    # Update progress
-                    progress_percentage = (idx) / total_models
-                    progress_bar.progress(progress_percentage)
-                    status_text.text(f"🤖 Analyzing with {model_name}... ({idx + 1}/{total_models})")
-                    
-                    # Analyze with single model
-                    result = self.model_analyzer.analyze_paper_single_model(
-                        text, 
-                        model_name, 
-                        self.model_analyzer.models[model_name],
-                        analysis_type="general", 
-                        num_trials=1
-                    )
-                    model_results[model_name] = result
-                
-                # Complete progress
-                progress_bar.progress(1.0)
-                status_text.text("✅ Analysis complete!")
-                time.sleep(0.5)
-                
-                # Clear progress indicators
-                progress_bar.empty()
-                status_text.empty()
-                
-                st.session_state.model_responses = model_results
-                
-                # Display performance metrics with throughput
-                st.markdown("### 📊 Model Performance Metrics")
-                metrics_df = self.model_analyzer.generate_performance_report(model_results)
-                st.dataframe(metrics_df, hide_index=True)
-                
-                # Display performance visualizations
-                visualizations = self.model_analyzer.create_performance_visualizations(model_results)
-                viz_tabs = st.tabs(["Response Times", "Token Counts", "Consistency Scores"])
-                for tab, fig in zip(viz_tabs, visualizations):
-                    with tab:
-                        st.plotly_chart(fig, use_container_width=True)
-                
-                # Display model analyses
-                st.markdown("### 📝 Model Analyses")
-                row1_col1, row1_col2 = st.columns(2)
-                row2_col1, row2_col2 = st.columns(2)
-                
-                models_grid = [
-                    (row1_col1, "deepseek-1.5b", "Deepseek 1.5B Analysis"),
-                    (row1_col2, "deepseek-8b", "Deepseek 8B Analysis"),
-                    (row2_col1, "mistral", "Mistral Analysis"),
-                    (row2_col2, "llama3-8b", "LLaMA3 8B Analysis")
-                ]
-                
-                for col, model_name, title in models_grid:
-                    with col:
-                        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                        st.markdown(f"### {title}")
-                        response = model_results.get(model_name, {}).get('response', f"Error analyzing with {model_name}")
-                        st.markdown(response)
-                        st.markdown('</div>', unsafe_allow_html=True)
-                
-                st.markdown('</div>', unsafe_allow_html=True)
+                # Analyze with single model
+                result = self.model_analyzer.analyze_paper_single_model(
+                    text, 
+                    model_name, 
+                    self.model_analyzer.models[model_name],
+                    analysis_type="general", 
+                    num_trials=1
+                )
+                model_results[model_name] = result
+            
+            # Complete progress
+            progress_bar.progress(1.0)
+            status_text.text("✅ Analysis complete!")
+            time.sleep(0.5)
+            
+            # Clear progress indicators
+            progress_bar.empty()
+            status_text.empty()
+            
+            # Store in session state for export
+            st.session_state.model_responses = model_results
+            
+            # Display performance metrics with throughput
+            st.markdown("### 📊 Model Performance Metrics")
+            metrics_df = self.model_analyzer.generate_performance_report(model_results)
+            st.dataframe(metrics_df, hide_index=True)
+            
+            # Display performance visualizations
+            visualizations = self.model_analyzer.create_performance_visualizations(model_results)
+            viz_tabs = st.tabs(["Response Times", "Token Counts", "Consistency Scores"])
+            for tab, fig in zip(viz_tabs, visualizations):
+                with tab:
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            # Display model analyses
+            st.markdown("### 📝 Model Analyses")
+            row1_col1, row1_col2 = st.columns(2)
+            row2_col1, row2_col2 = st.columns(2)
+            
+            models_grid = [
+                (row1_col1, "deepseek-1.5b", "Deepseek 1.5B Analysis"),
+                (row1_col2, "deepseek-8b", "Deepseek 8B Analysis"),
+                (row2_col1, "mistral", "Mistral Analysis"),
+                (row2_col2, "llama3-8b", "LLaMA3 8B Analysis")
+            ]
+            
+            for col, model_name, title in models_grid:
+                with col:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.markdown(f"### {title}")
+                    response = model_results.get(model_name, {}).get('response', f"Error analyzing with {model_name}")
+                    st.markdown(response)
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
         
         # Performance Analysis (BLEU, METEOR, ROUGE)
         if settings["compare_models"]:
-            self.display_performance_analysis(text)
+            performance_results = self.display_performance_analysis(text)
+            # Store in session state for export
+            st.session_state.performance_results = performance_results
     
     def run(self):
         """Enhanced main application loop with improved UI."""
@@ -638,6 +715,9 @@ class ResearchPaperAssistant:
             ["deepseek-1.5b", "deepseek-8b", "mistral", "llama3-8b"],
             help="Choose which model to use for chat interactions"
         )
+        
+        # Add Excel export section
+        self.create_export_section()
         
         tab1, tab2 = st.tabs(["📊 Analysis", "💬 Chat"])
         
@@ -654,6 +734,8 @@ class ResearchPaperAssistant:
                     pdf_data = self.pdf_processor.extract_text_from_pdf(uploaded_file)
                     if pdf_data.get("metadata"):
                         self.display_pdf_metadata(pdf_data["metadata"])
+                        # Store metadata for export
+                        st.session_state.pdf_metadata = pdf_data["metadata"]
                     text_input = pdf_data.get("text", "")
                     if text_input:
                         st.session_state.paper_content = text_input
