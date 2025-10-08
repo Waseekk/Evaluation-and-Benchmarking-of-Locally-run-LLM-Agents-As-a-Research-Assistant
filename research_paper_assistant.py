@@ -534,13 +534,59 @@ class ResearchPaperAssistant:
                 
                 st.markdown('</div>', unsafe_allow_html=True)
         
-        # Model Comparison with Enhanced Metrics
-        if settings["compare_models"]:
-            with st.spinner("Analyzing models..."):
+            # Model Comparison with Enhanced Metrics
+            if settings["compare_models"]:
                 st.markdown('<div class="metric-container">', unsafe_allow_html=True)
                 st.subheader("🤖 Enhanced Model Analysis")
                 
-                model_results = self.model_analyzer.analyze_paper(text)
+                # ⭐ ADD: Progress tracking
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                # Estimate token count for progress calculation
+                estimated_tokens = self.model_analyzer.estimate_token_count(text)
+                will_chunk = estimated_tokens > 3000
+                
+                if will_chunk:
+                    chunks_count = len(self.model_analyzer._chunk_text(text, max_length=1000))
+                    status_text.text(f"📄 Paper size: {estimated_tokens} tokens → splitting into {chunks_count} chunks")
+                else:
+                    status_text.text(f"📄 Paper size: {estimated_tokens} tokens → processing as single chunk")
+                
+                import time
+                time.sleep(1)  # Brief pause to show status
+                
+                # Model names for progress tracking
+                model_names = list(self.model_analyzer.models.keys())
+                total_models = len(model_names)
+                
+                # Process with progress updates
+                model_results = {}
+                for idx, model_name in enumerate(model_names):
+                    # Update progress
+                    progress_percentage = (idx) / total_models
+                    progress_bar.progress(progress_percentage)
+                    status_text.text(f"🤖 Analyzing with {model_name}... ({idx + 1}/{total_models})")
+                    
+                    # Analyze with single model
+                    result = self.model_analyzer.analyze_paper_single_model(
+                        text, 
+                        model_name, 
+                        self.model_analyzer.models[model_name],
+                        analysis_type="general", 
+                        num_trials=1
+                    )
+                    model_results[model_name] = result
+                
+                # Complete progress
+                progress_bar.progress(1.0)
+                status_text.text("✅ Analysis complete!")
+                time.sleep(0.5)
+                
+                # Clear progress indicators
+                progress_bar.empty()
+                status_text.empty()
+                
                 st.session_state.model_responses = model_results
                 
                 # Display performance metrics with throughput

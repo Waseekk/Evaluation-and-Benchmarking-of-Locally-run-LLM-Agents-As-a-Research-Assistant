@@ -38,9 +38,9 @@ class ModelComparisonAnalyzer:
         # Model-specific scaling factors
         self.scaling_factors = {
             'deepseek-1.5b': 1.0,
-            'deepseek-8b': 1.2,
-            'mistral': 1.1,
-            'llama3-8b': 1.15
+            'deepseek-8b': 1.0,
+            'mistral': 1.00,
+            'llama3-8b': 1.00
         }
         
         self.performance_metrics = {model: {
@@ -48,6 +48,13 @@ class ModelComparisonAnalyzer:
             'token_counts': [],
             'consistency_scores': []
         } for model in self.models.keys()}
+
+    # ⭐ NEW METHOD: Estimate token count for intelligent chunking
+    def estimate_token_count(self, text: str) -> int:
+        """Estimate the number of tokens in text."""
+        # Rough estimate: 1 token ≈ 0.75 words (or 1.3 tokens per word)
+        words = len(text.split())
+        return int(words * 1.3)
 
     def _chunk_text(self, text: str, max_length: int = 1000) -> List[str]:
         words = text.split()
@@ -84,7 +91,7 @@ class ModelComparisonAnalyzer:
                     similarities.append(intersection / union)
         return sum(similarities) / max(1, len(similarities))
     
-    def analyze_paper(self, text: str, analysis_type: str = "general", num_trials: int = 2) -> Dict[str, any]:
+    def analyze_paper(self, text: str, analysis_type: str = "general", num_trials: int = 1) -> Dict[str, any]:
         results = {}
         prompts = {
             "general": """Analyze this research paper with the following structure:
@@ -119,9 +126,22 @@ Keep your response concise and well-organized."""
                 try:
                     process = psutil.Process()
                     memory_before = process.memory_info().rss / 1024 / 1024
-                    chunks = self._chunk_text(text)
+                    
+                    # ⭐ INTELLIGENT CHUNKING: Only chunk if text is large
+                    estimated_tokens = self.estimate_token_count(text)
+                    
+                    if estimated_tokens > 3000:
+                        # Large paper: chunk it
+                        chunks = self._chunk_text(text, max_length=1000)
+                        print(f"📄 {model_name}: Large paper detected ({estimated_tokens} tokens) - splitting into {len(chunks)} chunks")
+                    else:
+                        # Small/medium paper: process as single chunk
+                        chunks = [text]
+                        print(f"📄 {model_name}: Processing paper as single chunk ({estimated_tokens} tokens)")
+                    
                     combined_response = ""
                     start_time = time.time()
+                    
                     for i, chunk in enumerate(chunks):
                         chunk_prompt = f"{prompt}\n\nAnalyzing part {i+1} of {len(chunks)}:\n\nText: {chunk}"
                         formatted_message = f"System: {system_prompt}\n\nHuman: {chunk_prompt}"
@@ -129,10 +149,12 @@ Keep your response concise and well-organized."""
                         if not isinstance(chunk_response, str):
                             chunk_response = str(chunk_response)
                         combined_response += chunk_response + "\n\n"
+                    
                     response_time = time.time() - start_time
                     memory_after = process.memory_info().rss / 1024 / 1024
                     memory_usage = memory_after - memory_before
                     token_count = self.calculate_token_count(combined_response)
+                    
                     model_results['responses'].append(combined_response)
                     model_results['response_times'].append(response_time)
                     model_results['token_counts'].append(token_count)
@@ -183,6 +205,131 @@ Keep your response concise and well-organized."""
                     results[model_name]['consistency_score']
                 )
         return results
+    
+    # ⭐ NEW METHOD: Analyze with single model for progress tracking
+    def analyze_paper_single_model(self, text: str, model_name: str, model, 
+                                   analysis_type: str = "general", 
+                                   num_trials: int = 1) -> Dict[str, any]:
+        """Analyze paper with a single model - used for progress tracking."""
+        
+        prompts = {
+            "general": """Analyze this research paper with the following structure:
+1. Main Topic & Objective
+2. Key Methodology
+3. Major Findings
+4. Strengths
+5. Areas for Improvement
+
+Keep the analysis concise and focused.""",
+            "methodology": "Focus on analyzing the methodology section of this paper. Evaluate its completeness and rigor.",
+            "results": "Analyze the results section, focusing on data presentation and statistical validity."
+        }
+        
+        system_prompt = """You are a research paper analysis expert. Analyze the given text and provide:
+- Clear, structured feedback
+- Specific examples from the text
+- Constructive suggestions
+Keep your response concise and well-organized."""
+        
+        prompt = prompts.get(analysis_type, prompts["general"])
+        
+        model_results = {
+            'responses': [],
+            'response_times': [],
+            'token_counts': [],
+            'memory_usage': [],
+            'errors': [],
+            'success_count': 0
+        }
+        
+        for trial in range(num_trials):
+            try:
+                process = psutil.Process()
+                memory_before = process.memory_info().rss / 1024 / 1024
+                
+                # Intelligent chunking
+                estimated_tokens = self.estimate_token_count(text)
+                
+                if estimated_tokens > 3000:
+                    chunks = self._chunk_text(text, max_length=1000)
+                    print(f"📄 {model_name}: Large paper ({estimated_tokens} tokens) - {len(chunks)} chunks")
+                else:
+                    chunks = [text]
+                    print(f"📄 {model_name}: Single chunk ({estimated_tokens} tokens)")
+                
+                combined_response = ""
+                start_time = time.time()
+                
+                for i, chunk in enumerate(chunks):
+                    chunk_prompt = f"{prompt}\n\nAnalyzing part {i+1} of {len(chunks)}:\n\nText: {chunk}"
+                    formatted_message = f"System: {system_prompt}\n\nHuman: {chunk_prompt}"
+                    chunk_response = model.invoke(formatted_message)
+                    
+                    if not isinstance(chunk_response, str):
+                        chunk_response = str(chunk_response)
+                    combined_response += chunk_response + "\n\n"
+                
+                response_time = time.time() - start_time
+                memory_after = process.memory_info().rss / 1024 / 1024
+                memory_usage = memory_after - memory_before
+                token_count = self.calculate_token_count(combined_response)
+                
+                model_results['responses'].append(combined_response)
+                model_results['response_times'].append(response_time)
+                model_results['token_counts'].append(token_count)
+                model_results['memory_usage'].append(memory_usage)
+                model_results['success_count'] += 1
+                
+            except Exception as e:
+                error_info = {
+                    'trial': trial,
+                    'error_type': type(e).__name__,
+                    'error_message': str(e)
+                }
+                model_results['errors'].append(error_info)
+                print(f"Error in trial {trial} with {model_name}: {str(e)}")
+        
+        # Calculate metrics
+        if model_results['responses']:
+            response_times = np.array(model_results['response_times'])
+            token_counts = np.array(model_results['token_counts'])
+            memory_usage = np.array(model_results['memory_usage'])
+            
+            result = {
+                'response': model_results['responses'][-1],
+                'avg_response_time': np.mean(response_times),
+                'std_response_time': np.std(response_times),
+                'avg_token_count': np.mean(token_counts),
+                'std_token_count': np.std(token_counts),
+                'avg_memory_usage': np.mean(memory_usage),
+                'std_memory_usage': np.std(memory_usage),
+                'consistency_score': self.calculate_consistency_score(model_results['responses']),
+                'error_rate': len(model_results['errors']) / num_trials,
+                'success_rate': model_results['success_count'] / num_trials,
+                'performance_history': {
+                    'response_times': model_results['response_times'],
+                    'token_counts': model_results['token_counts'],
+                    'memory_usage': model_results['memory_usage']
+                },
+                'errors': model_results['errors']
+            }
+            
+            # Update performance metrics
+            self.performance_metrics[model_name]['response_times'].extend(model_results['response_times'])
+            self.performance_metrics[model_name]['token_counts'].extend(model_results['token_counts'])
+            if result.get('consistency_score'):
+                self.performance_metrics[model_name]['consistency_scores'].append(
+                    result['consistency_score']
+                )
+            
+            return result
+        else:
+            return {
+                'response': f"Error analyzing with {model_name}. Please try again.",
+                'error_rate': 1.0,
+                'success_rate': 0.0,
+                'errors': model_results['errors']
+            }
     
     def create_performance_visualizations(self, results: Dict) -> List[go.Figure]:
         figures = []
