@@ -37,6 +37,10 @@ class PerformanceAnalyzer:
             "factual_consistency": []
         }
         
+        # Flag to track if quality models are loaded
+        self.models_loaded = False
+        
+        # Initialize lightweight components only
         try:
             nltk.download('punkt', quiet=True)
             nltk.download('wordnet', quiet=True)
@@ -48,13 +52,28 @@ class PerformanceAnalyzer:
         except Exception as e:
             print(f"Error initializing NLTK: {str(e)}")
             self.rouge_scorer = None
-            
+        
+        # Heavy models - will be loaded on demand
+        self.encoder = None
+        self.fact_check_model = None
+        self.fact_check_tokenizer = None
+        self.gpt2_model = None
+        self.gpt2_tokenizer = None
+
+    def initialize_quality_models(self):
+        """Lazy load heavy models only when quality metrics are enabled."""
+        if self.models_loaded:
+            return  # Already loaded
+        
+        print("🔄 Loading quality analysis models (this may take a moment)...")
+        
         try:
             self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
+            print("✓ SentenceTransformer loaded")
         except Exception as e:
             print(f"Error loading SentenceTransformer: {str(e)}")
             self.encoder = None
-            
+        
         try:
             self.fact_check_model = AutoModelForSequenceClassification.from_pretrained(
                 'microsoft/deberta-base-mnli', ignore_mismatched_sizes=True
@@ -62,23 +81,38 @@ class PerformanceAnalyzer:
             self.fact_check_tokenizer = AutoTokenizer.from_pretrained(
                 'microsoft/deberta-base-mnli', ignore_mismatched_sizes=True
             )
+            print("✓ Fact-checking model loaded")
         except Exception as e:
             print(f"Error loading fact-checking model: {str(e)}")
             self.fact_check_model = None
             self.fact_check_tokenizer = None
+        
+        try:
+            self.gpt2_tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+            self.gpt2_model = GPT2LMHeadModel.from_pretrained('gpt2')
+            print("✓ GPT-2 model loaded")
+        except Exception as e:
+            print(f"Error loading GPT-2: {str(e)}")
+            self.gpt2_model = None
+            self.gpt2_tokenizer = None
+        
+        self.models_loaded = True
+        print("✅ All quality models loaded successfully")
 
     def calculate_perplexity(self, text) -> float:
         try:
+            if not self.gpt2_model or not self.gpt2_tokenizer:
+                return 0.0
+            
             if hasattr(text, 'content'):
                 text = text.content
             text_str = str(text)
             if not text_str.strip():
                 return 0.0
-            tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-            model = GPT2LMHeadModel.from_pretrained('gpt2')
-            inputs = tokenizer(text_str, return_tensors='pt')
+            
+            inputs = self.gpt2_tokenizer(text_str, return_tensors='pt', truncation=True, max_length=512)
             with torch.no_grad():
-                outputs = model(**inputs, labels=inputs['input_ids'])
+                outputs = self.gpt2_model(**inputs, labels=inputs['input_ids'])
             return torch.exp(outputs.loss).item()
         except Exception as e:
             print(f"Error calculating perplexity: {str(e)}")

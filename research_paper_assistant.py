@@ -146,13 +146,21 @@ class ResearchPaperAssistant:
             st.markdown("### 📈 Visualization Options")
             show_citation_graph = st.checkbox("Show Citation Year Distribution", value=True)
             show_structure_radar = st.checkbox("Show Structure Radar Chart", value=True)
+            st.divider()
+            st.markdown("### 🔬 Advanced Metrics")
+            enable_quality_metrics = st.checkbox(
+                "📊 Detailed Quality Metrics", 
+                value=False,
+                help="Enable BLEU, ROUGE, Perplexity analysis (adds ~20 seconds)"
+            )
             return {
                 "depth": analysis_depth,
                 "analyze_citations": analyze_citations,
                 "analyze_structure": analyze_structure,
                 "compare_models": compare_models,
                 "show_citation_graph": show_citation_graph,
-                "show_structure_radar": show_structure_radar
+                "show_structure_radar": show_structure_radar,
+                "enable_quality_metrics": enable_quality_metrics
             }
 
     def create_export_section(self):
@@ -611,136 +619,91 @@ class ResearchPaperAssistant:
                 st.markdown('</div>', unsafe_allow_html=True)
         
         # Model Comparison with Enhanced Metrics
-        if settings["compare_models"]:
-            st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-            st.subheader("🤖 Enhanced Model Analysis")
-            
-            # Progress tracking
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Estimate token count for progress calculation
-            estimated_tokens = self.model_analyzer.estimate_token_count(text)
-            will_chunk = estimated_tokens > 3000
-            
-            if will_chunk:
-                chunks_count = len(self.model_analyzer._chunk_text(text, max_length=1000))
-                status_text.text(f"📄 Paper size: {estimated_tokens} tokens → splitting into {chunks_count} chunks")
-            else:
-                status_text.text(f"📄 Paper size: {estimated_tokens} tokens → processing as single chunk")
-            
-            import time
-            time.sleep(1)
-            
-            # Model names for progress tracking
-            model_names = list(self.model_analyzer.models.keys())
-            total_models = len(model_names)
-            
-            # Process with progress updates
-            model_results = {}
-            for idx, model_name in enumerate(model_names):
-                # Update progress
-                progress_percentage = (idx) / total_models
-                progress_bar.progress(progress_percentage)
-                status_text.text(f"🤖 Analyzing with {model_name}... ({idx + 1}/{total_models})")
-                
-                # Analyze with single model
-                result = self.model_analyzer.analyze_paper_single_model(
-                    text, 
-                    model_name, 
-                    self.model_analyzer.models[model_name],
-                    analysis_type="general", 
-                    num_trials=1
-                )
-                model_results[model_name] = result
-            
-            # Complete progress
-            progress_bar.progress(1.0)
-            status_text.text("✅ Analysis complete!")
-            time.sleep(0.5)
-            
-            # Clear progress indicators
-            progress_bar.empty()
-            status_text.empty()
-            
-            # Store in session state for export
-            st.session_state.model_responses = model_results
-            
-            # Display performance metrics with throughput
-            st.markdown("### 📊 Model Performance Metrics")
-            metrics_df = self.model_analyzer.generate_performance_report(model_results)
-            st.dataframe(metrics_df, hide_index=True)
-            
-            # Display performance visualizations
-            visualizations = self.model_analyzer.create_performance_visualizations(model_results)
-            viz_tabs = st.tabs(["Response Times", "Token Counts", "Consistency Scores"])
-            for tab, fig in zip(viz_tabs, visualizations):
-                with tab:
-                    st.plotly_chart(fig, use_container_width=True)
-            
-            # Display model analyses
-            st.markdown("### 📝 Model Analyses")
-            row1_col1, row1_col2 = st.columns(2)
-            row2_col1, row2_col2 = st.columns(2)
-            
-            models_grid = [
-                (row1_col1, "deepseek-1.5b", "Deepseek 1.5B Analysis"),
-                (row1_col2, "deepseek-8b", "Deepseek 8B Analysis"),
-                (row2_col1, "mistral", "Mistral Analysis"),
-                (row2_col2, "llama3-8b", "LLaMA3 8B Analysis")
-            ]
-            
-            for col, model_name, title in models_grid:
-                with col:
-                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                    st.markdown(f"### {title}")
-                    response = model_results.get(model_name, {}).get('response', f"Error analyzing with {model_name}")
-                    st.markdown(response)
-                    st.markdown('</div>', unsafe_allow_html=True)
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-        
         # Performance Analysis (BLEU, METEOR, ROUGE)
         if settings["compare_models"]:
-            st.markdown("### 📈 Response Quality Summary")
-            
-            # Create simplified performance display from existing model_results
-            perf_cols = st.columns(4)
-            
-            for idx, (model_name, result) in enumerate(model_results.items()):
-                col = perf_cols[idx % 4]
-                with col:
-                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                    st.markdown(f"**{model_name}**")
+            if settings["enable_quality_metrics"]:
+                # ✅ DETAILED MODE: Full quality metrics analysis
+                st.markdown("### 🔬 Detailed Quality Analysis")
+                st.info("📊 Running comprehensive quality metrics (BLEU, ROUGE, Perplexity)...")
+                
+                with st.spinner("Loading quality analysis models..."):
+                    # Initialize heavy models on demand
+                    self.performance_analyzer.initialize_quality_models()
+                
+                with st.spinner("Calculating quality metrics..."):
+                    # Run full performance analysis
+                    performance_results = self.performance_analyzer.analyze_model_performance(
+                        self.model_analyzer.models,
+                        text[:1000],
+                        num_runs=1  # Reduce runs to keep it fast
+                    )
                     
-                    # Show metrics we already calculated
-                    if isinstance(result, dict):
-                        if 'avg_response_time' in result:
-                            st.metric("Response Time", f"{result['avg_response_time']:.2f}s")
-                        if 'avg_token_count' in result:
-                            st.metric("Tokens", f"{int(result['avg_token_count'])}")
-                        if 'consistency_score' in result:
-                            st.metric("Consistency", f"{result['consistency_score']:.2f}")
+                    # Store in session state
+                    st.session_state.performance_results = performance_results
                     
-                    st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Store simplified performance results for export
-            st.session_state.performance_results = {
-                model_name: {
-                    'resource_usage': {
-                        'avg_cpu_percent': result.get('avg_memory_usage', 0) / 10,  # Estimate
-                        'peak_memory': result.get('avg_memory_usage', 0)
-                    },
-                    'quality_metrics': {
-                        'avg_coherence': result.get('consistency_score', 0)
-                    },
-                    'response_metrics': {
-                        'avg_response_time': result.get('avg_response_time', 0)
+                    # Display visualizations
+                    figures = self.performance_analyzer.create_performance_visualizations(performance_results)
+                    viz_tabs = st.tabs(["Resource Usage", "Quality Metrics", "Response Metrics"])
+                    for tab, fig in zip(viz_tabs, figures):
+                        with tab:
+                            st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Display detailed report
+                    st.markdown("### 📊 Detailed Performance Report")
+                    report_df = self.performance_analyzer.generate_performance_report(performance_results)
+                    st.dataframe(report_df, hide_index=True, use_container_width=True)
+                    
+                    # Download button
+                    csv = report_df.to_csv(index=False)
+                    st.download_button(
+                        "📥 Download Performance Report (CSV)",
+                        csv,
+                        "performance_report.csv",
+                        "text/csv",
+                        key='download-performance-csv'
+                    )
+            else:
+                # ⚡ FAST MODE: Basic metrics only (current behavior)
+                st.markdown("### 📈 Response Quality Summary")
+                st.caption("💡 Enable 'Detailed Quality Metrics' in sidebar for BLEU, ROUGE, Perplexity analysis")
+                
+                # Create simplified performance display from existing model_results
+                perf_cols = st.columns(4)
+                
+                for idx, (model_name, result) in enumerate(model_results.items()):
+                    col = perf_cols[idx % 4]
+                    with col:
+                        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                        st.markdown(f"**{model_name}**")
+                        
+                        # Show metrics we already calculated
+                        if isinstance(result, dict):
+                            if 'avg_response_time' in result:
+                                st.metric("Response Time", f"{result['avg_response_time']:.2f}s")
+                            if 'avg_token_count' in result:
+                                st.metric("Tokens", f"{int(result['avg_token_count'])}")
+                            if 'consistency_score' in result:
+                                st.metric("Consistency", f"{result['consistency_score']:.2f}")
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Store simplified performance results for export
+                st.session_state.performance_results = {
+                    model_name: {
+                        'resource_usage': {
+                            'avg_cpu_percent': result.get('avg_memory_usage', 0) / 10,
+                            'peak_memory': result.get('avg_memory_usage', 0)
+                        },
+                        'quality_metrics': {
+                            'avg_coherence': result.get('consistency_score', 0)
+                        },
+                        'response_metrics': {
+                            'avg_response_time': result.get('avg_response_time', 0)
+                        }
                     }
+                    for model_name, result in model_results.items()
+                    if isinstance(result, dict) and 'avg_response_time' in result
                 }
-                for model_name, result in model_results.items()
-                if isinstance(result, dict) and 'avg_response_time' in result
-            }
     
     def run(self):
         """Enhanced main application loop with improved UI."""
