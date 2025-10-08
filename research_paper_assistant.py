@@ -145,23 +145,217 @@ class ResearchPaperAssistant:
             }
 
     def display_pdf_metadata(self, metadata: Dict):
-        """Displays PDF metadata with improved styling."""
+        """
+        Displays enhanced PDF metadata with OCR info, sections, and content lists.
+        """
         st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+        
+        # === DOCUMENT INFORMATION ===
         st.subheader("📄 Document Information")
-        col1, col2, col3 = st.columns(3)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
             st.markdown('<div class="metric-card">', unsafe_allow_html=True)
             st.metric("Total Pages", metadata.get("total_pages", "N/A"))
             st.markdown('</div>', unsafe_allow_html=True)
+        
         with col2:
             st.markdown('<div class="metric-card">', unsafe_allow_html=True)
             st.metric("Author", metadata.get("author", "Unknown"))
             st.markdown('</div>', unsafe_allow_html=True)
+        
         with col3:
             st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-            st.metric("Contains Images", "Yes" if metadata.get("has_images") else "No")
+            page_format = metadata.get("page_format", "Unknown")
+            st.metric("Page Format", page_format)
             st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col4:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            doc_type = metadata.get("document_type", "unknown")
+            doc_type_display = {
+                "native": "Native PDF",
+                "scanned": "Scanned PDF",
+                "mixed": "Mixed PDF"
+            }.get(doc_type, "Unknown")
+            st.metric("Document Type", doc_type_display)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        # === OCR INFORMATION (if OCR was used) ===
+        if metadata.get("ocr_applied", False):
+            st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+            st.subheader("🔍 OCR Information")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                ocr_count = metadata.get("ocr_page_count", 0)
+                total_pages = metadata.get("total_pages", 1)
+                st.metric(
+                    "Pages Processed with OCR", 
+                    f"{ocr_count}/{total_pages}",
+                    help="Number of pages where OCR was applied"
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                ocr_conf = metadata.get("ocr_confidence_avg", 0.0)
+                confidence_pct = f"{ocr_conf * 100:.1f}%"
+                
+                # Color coding based on confidence
+                if ocr_conf >= 0.8:
+                    color = "🟢"
+                elif ocr_conf >= 0.6:
+                    color = "🟡"
+                else:
+                    color = "🔴"
+                
+                st.metric(
+                    "OCR Confidence", 
+                    f"{color} {confidence_pct}",
+                    help="Average confidence score for OCR text extraction"
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                ocr_pages = metadata.get("ocr_pages", [])
+                if ocr_pages:
+                    # Show first few page numbers
+                    if len(ocr_pages) <= 5:
+                        pages_str = ", ".join(map(str, ocr_pages))
+                    else:
+                        pages_str = f"{', '.join(map(str, ocr_pages[:5]))}..."
+                    
+                    st.metric(
+                        "OCR Pages", 
+                        pages_str,
+                        help=f"Pages where OCR was applied: {', '.join(map(str, ocr_pages))}"
+                    )
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # OCR Quality Warning
+            if ocr_conf < 0.7:
+                st.warning(
+                    "⚠️ OCR confidence is below 70%. Text extraction quality may be lower than expected. "
+                    "Consider using a higher quality scan for better results."
+                )
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # === CONTENT STRUCTURE ===
+        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+        st.subheader("📝 Document Structure")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.markdown("**Sections Detected:**")
+            
+            sections = {
+                "Abstract": metadata.get("has_abstract", False),
+                "Introduction": metadata.get("has_introduction", False),
+                "Methodology": metadata.get("has_methodology", False),
+                "Results": metadata.get("has_results", False),
+                "Discussion": metadata.get("has_discussion", False),
+                "Conclusion": metadata.get("has_conclusion", False),
+                "References": metadata.get("has_references", False)
+            }
+            
+            for section_name, found in sections.items():
+                icon = "✅" if found else "❌"
+                st.markdown(f"{icon} {section_name}")
+            
+            # Calculate completeness
+            completeness = sum(sections.values()) / len(sections)
+            st.progress(completeness, text=f"Structure Completeness: {completeness:.0%}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            
+            # Abstract information
+            if metadata.get("has_abstract", False):
+                st.markdown("**Abstract:**")
+                word_count = metadata.get("abstract_word_count", 0)
+                st.markdown(f"• Word Count: {word_count}")
+                st.markdown(f"• Status: ✅ Found")
+            else:
+                st.markdown("**Abstract:**")
+                st.markdown("• Status: ❌ Not found")
+            
+            st.markdown("---")
+            
+            # Content counts
+            st.markdown("**Content Elements:**")
+            st.markdown(f"• Figures: {metadata.get('figures_count', 0)}")
+            st.markdown(f"• Tables: {metadata.get('tables_count', 0)}")
+            st.markdown(f"• Images: {metadata.get('images_count', 0)}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # === FIGURES LIST ===
+        if metadata.get("figure_list"):
+            st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+            st.subheader("📊 Figures")
+            
+            figure_list = metadata.get("figure_list", [])
+            
+            # Create DataFrame for better display
+            fig_df = pd.DataFrame(figure_list)
+            
+            if not fig_df.empty:
+                # Rename columns for display
+                fig_df = fig_df.rename(columns={
+                    'number': 'Figure #',
+                    'caption': 'Caption',
+                    'page': 'Page'
+                })
+                
+                st.dataframe(
+                    fig_df,
+                    hide_index=True,
+                    use_container_width=True
+                )
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # === TABLES LIST ===
+        if metadata.get("table_list"):
+            st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+            st.subheader("📋 Tables")
+            
+            table_list = metadata.get("table_list", [])
+            
+            # Create DataFrame for better display
+            table_df = pd.DataFrame(table_list)
+            
+            if not table_df.empty:
+                # Rename columns for display
+                table_df = table_df.rename(columns={
+                    'number': 'Table #',
+                    'caption': 'Caption',
+                    'page': 'Page'
+                  #  'rows': 'Rows',
+                  #  'cols': 'Columns'
+                })
+                
+                st.dataframe(
+                    table_df,
+                    hide_index=True,
+                    use_container_width=True
+                )
+            
+            st.markdown('</div>', unsafe_allow_html=True)
 
     def display_performance_analysis(self, text: str):
         st.subheader("🚀 Performance Analysis")
