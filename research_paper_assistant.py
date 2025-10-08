@@ -168,24 +168,43 @@ class ResearchPaperAssistant:
         st.sidebar.divider()
         st.sidebar.markdown("### 📥 Export Data")
         
-        # Check if any analysis has been performed
-        has_data = any([
-            st.session_state.citation_results,
-            st.session_state.structure_results,
-            st.session_state.model_responses,
-            st.session_state.performance_results
-        ])
+        # ✅ Check if ANY analysis data exists
+        has_citation = st.session_state.citation_results is not None
+        has_structure = st.session_state.structure_results is not None
+        has_models = bool(st.session_state.model_responses)
+        has_performance = bool(st.session_state.performance_results)
+        
+        has_data = any([has_citation, has_structure, has_models, has_performance])
         
         if has_data:
             st.sidebar.success("✓ Analysis data available")
             
+            # Show what data is available
+            with st.sidebar.expander("📋 Available Data"):
+                st.write("✅ Citations" if has_citation else "❌ Citations")
+                st.write("✅ Structure" if has_structure else "❌ Structure")
+                st.write("✅ Model Comparisons" if has_models else "❌ Model Comparisons")
+                st.write("✅ Performance Metrics" if has_performance else "❌ Performance Metrics")
+                
+                # Show if quality metrics were included
+                if has_performance:
+                    sample_model = list(st.session_state.performance_results.keys())[0]
+                    sample_data = st.session_state.performance_results[sample_model]
+                    has_quality = sample_data['response_metrics']['avg_bleu'] > 0
+                    
+                    if has_quality:
+                        st.info("🔬 Includes detailed quality metrics")
+                    else:
+                        st.info("📊 Basic performance metrics only")
+            
             # Show sheet summary in an expander
-            with st.sidebar.expander("📋 Excel Sheets Preview"):
+            with st.sidebar.expander("📑 Excel Sheets Preview"):
                 sheet_summary = self.excel_exporter.get_sheet_summary()
                 for sheet_name, description in list(sheet_summary.items())[:5]:
                     st.caption(f"**{sheet_name}**: {description}")
                 st.caption(f"*...and {len(sheet_summary) - 5} more sheets*")
             
+            # ✅ EXPORT BUTTON - Works with or without quality metrics
             if st.sidebar.button("📊 Export All Data to Excel", type="primary"):
                 with st.spinner("Generating Excel file..."):
                     try:
@@ -215,8 +234,14 @@ class ResearchPaperAssistant:
                         
                     except Exception as e:
                         st.sidebar.error(f"Error generating Excel: {str(e)}")
+                        st.sidebar.exception(e)  # Show full traceback for debugging
         else:
             st.sidebar.info("Run an analysis first to enable export")
+            st.sidebar.markdown("**Steps:**")
+            st.sidebar.markdown("1. Upload a PDF or paste text")
+            st.sidebar.markdown("2. Enable analysis options")
+            st.sidebar.markdown("3. Click 'Analyze Paper'")
+            st.sidebar.markdown("4. Export button will appear here")
 
     def display_pdf_metadata(self, metadata: Dict):
         """
@@ -621,27 +646,108 @@ class ResearchPaperAssistant:
         # Model Comparison with Enhanced Metrics
         # Performance Analysis (BLEU, METEOR, ROUGE)
         if settings["compare_models"]:
+            st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+            st.subheader("🤖 Enhanced Model Analysis")
+            
+            # ⭐ STEP 1: RUN MODEL ANALYSIS (Always runs)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            estimated_tokens = self.model_analyzer.estimate_token_count(text)
+            will_chunk = estimated_tokens > 3000
+            
+            if will_chunk:
+                chunks_count = len(self.model_analyzer._chunk_text(text, max_length=1000))
+                status_text.text(f"📄 Paper size: {estimated_tokens} tokens → splitting into {chunks_count} chunks")
+            else:
+                status_text.text(f"📄 Paper size: {estimated_tokens} tokens → processing as single chunk")
+            
+            import time
+            time.sleep(1)
+            
+            model_names = list(self.model_analyzer.models.keys())
+            total_models = len(model_names)
+            
+            # Process all models
+            model_results = {}
+            for idx, model_name in enumerate(model_names):
+                progress_percentage = (idx) / total_models
+                progress_bar.progress(progress_percentage)
+                status_text.text(f"🤖 Analyzing with {model_name}... ({idx + 1}/{total_models})")
+                
+                result = self.model_analyzer.analyze_paper_single_model(
+                    text, 
+                    model_name, 
+                    self.model_analyzer.models[model_name],
+                    analysis_type="general", 
+                    num_trials=1
+                )
+                model_results[model_name] = result
+            
+            progress_bar.progress(1.0)
+            status_text.text("✅ Analysis complete!")
+            time.sleep(0.5)
+            
+            progress_bar.empty()
+            status_text.empty()
+            
+            # ✅ ALWAYS store model responses for export
+            st.session_state.model_responses = model_results
+            
+            # Display basic performance metrics (always shown)
+            st.markdown("### 📊 Model Performance Metrics")
+            metrics_df = self.model_analyzer.generate_performance_report(model_results)
+            st.dataframe(metrics_df, hide_index=True)
+            
+            # Display performance visualizations
+            visualizations = self.model_analyzer.create_performance_visualizations(model_results)
+            viz_tabs = st.tabs(["Response Times", "Token Counts", "Consistency Scores"])
+            for tab, fig in zip(viz_tabs, visualizations):
+                with tab:
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            # Display model analyses
+            st.markdown("### 📝 Model Analyses")
+            row1_col1, row1_col2 = st.columns(2)
+            row2_col1, row2_col2 = st.columns(2)
+            
+            models_grid = [
+                (row1_col1, "deepseek-1.5b", "Deepseek 1.5B Analysis"),
+                (row1_col2, "deepseek-8b", "Deepseek 8B Analysis"),
+                (row2_col1, "mistral", "Mistral Analysis"),
+                (row2_col2, "llama3-8b", "LLaMA3 8B Analysis")
+            ]
+            
+            for col, model_name, title in models_grid:
+                with col:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.markdown(f"### {title}")
+                    response = model_results.get(model_name, {}).get('response', f"Error analyzing with {model_name}")
+                    st.markdown(response)
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # ⭐ STEP 2: OPTIONAL QUALITY METRICS (User choice)
             if settings["enable_quality_metrics"]:
-                # ✅ DETAILED MODE: Full quality metrics analysis
                 st.markdown("### 🔬 Detailed Quality Analysis")
                 st.info("📊 Running comprehensive quality metrics (BLEU, ROUGE, Perplexity)...")
                 
                 with st.spinner("Loading quality analysis models..."):
-                    # Initialize heavy models on demand
                     self.performance_analyzer.initialize_quality_models()
                 
                 with st.spinner("Calculating quality metrics..."):
-                    # Run full performance analysis
+                    # Run FULL performance analysis with all quality metrics
                     performance_results = self.performance_analyzer.analyze_model_performance(
                         self.model_analyzer.models,
                         text[:1000],
-                        num_runs=1  # Reduce runs to keep it fast
+                        num_runs=1
                     )
                     
-                    # Store in session state
+                    # ✅ Store detailed performance results
                     st.session_state.performance_results = performance_results
                     
-                    # Display visualizations
+                    # Display detailed visualizations
                     figures = self.performance_analyzer.create_performance_visualizations(performance_results)
                     viz_tabs = st.tabs(["Resource Usage", "Quality Metrics", "Response Metrics"])
                     for tab, fig in zip(viz_tabs, figures):
@@ -653,7 +759,6 @@ class ResearchPaperAssistant:
                     report_df = self.performance_analyzer.generate_performance_report(performance_results)
                     st.dataframe(report_df, hide_index=True, use_container_width=True)
                     
-                    # Download button
                     csv = report_df.to_csv(index=False)
                     st.download_button(
                         "📥 Download Performance Report (CSV)",
@@ -663,47 +768,49 @@ class ResearchPaperAssistant:
                         key='download-performance-csv'
                     )
             else:
-                # ⚡ FAST MODE: Basic metrics only (current behavior)
-                st.markdown("### 📈 Response Quality Summary")
-                st.caption("💡 Enable 'Detailed Quality Metrics' in sidebar for BLEU, ROUGE, Perplexity analysis")
+                # ✅ QUALITY METRICS DISABLED: Create basic performance data for export
+                # This ensures Excel export always has data to work with
                 
-                # Create simplified performance display from existing model_results
-                perf_cols = st.columns(4)
+                st.info("💡 Enable 'Detailed Quality Metrics' in the sidebar for BLEU, ROUGE, and Perplexity analysis")
                 
-                for idx, (model_name, result) in enumerate(model_results.items()):
-                    col = perf_cols[idx % 4]
-                    with col:
-                        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                        st.markdown(f"**{model_name}**")
-                        
-                        # Show metrics we already calculated
-                        if isinstance(result, dict):
-                            if 'avg_response_time' in result:
-                                st.metric("Response Time", f"{result['avg_response_time']:.2f}s")
-                            if 'avg_token_count' in result:
-                                st.metric("Tokens", f"{int(result['avg_token_count'])}")
-                            if 'consistency_score' in result:
-                                st.metric("Consistency", f"{result['consistency_score']:.2f}")
-                        
-                        st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Store simplified performance results for export
-                st.session_state.performance_results = {
-                    model_name: {
+                # Create simplified but complete performance structure
+                simplified_results = {}
+                for model_name, result in model_results.items():
+                    # Extract what we have from basic analysis
+                    simplified_results[model_name] = {
                         'resource_usage': {
-                            'avg_cpu_percent': result.get('avg_memory_usage', 0) / 10,
-                            'peak_memory': result.get('avg_memory_usage', 0)
+                            'avg_cpu_percent': result.get('avg_memory_usage', 0) / 10 if isinstance(result, dict) else 0,
+                            'peak_memory': result.get('avg_memory_usage', 0) if isinstance(result, dict) else 0,
+                            'avg_thread_count': 1.0,
+                            'avg_gpu_usage': 0.0
                         },
                         'quality_metrics': {
-                            'avg_coherence': result.get('consistency_score', 0)
+                            'avg_perplexity': 0.0,  # Not calculated without quality metrics
+                            'avg_ngram_diversity': 0.0,  # Not calculated
+                            'avg_coherence': result.get('consistency_score', 0) if isinstance(result, dict) else 0
                         },
                         'response_metrics': {
-                            'avg_response_time': result.get('avg_response_time', 0)
+                            'avg_bleu': 0.0,  # Not calculated without quality metrics
+                            'avg_meteor': 0.0,  # Not calculated
+                            'avg_rouge1': 0.0,  # Not calculated
+                            'avg_rouge2': 0.0,  # Not calculated
+                            'avg_rougeL': 0.0,  # Not calculated
+                            'avg_factual_consistency': 0.0  # Not calculated
                         }
                     }
-                    for model_name, result in model_results.items()
-                    if isinstance(result, dict) and 'avg_response_time' in result
-                }
+                
+                # ✅ Store simplified results (Excel export will work with this)
+                st.session_state.performance_results = simplified_results
+                
+                # Show what's available
+                st.markdown("**Available Metrics (without detailed quality analysis):**")
+                st.markdown("- ✅ Response times")
+                st.markdown("- ✅ Token counts") 
+                st.markdown("- ✅ Memory usage")
+                st.markdown("- ✅ Consistency scores")
+                st.markdown("- ❌ BLEU, METEOR, ROUGE scores (enable quality metrics)")
+                st.markdown("- ❌ Perplexity analysis (enable quality metrics)")
+                    
     
     def run(self):
         """Enhanced main application loop with improved UI."""
