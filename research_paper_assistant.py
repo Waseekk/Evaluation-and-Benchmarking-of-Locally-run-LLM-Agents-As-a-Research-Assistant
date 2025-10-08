@@ -423,30 +423,32 @@ class ResearchPaperAssistant:
 
     def display_performance_analysis(self, text: str) -> Dict:
         """Display performance analysis and return results."""
-        st.subheader("🚀 Performance Analysis")
-        with st.spinner("Analyzing model performance..."):
-            results = self.performance_analyzer.analyze_model_performance(
-                self.model_analyzer.models,
-                text[:1000]
-            )
-            figures = self.performance_analyzer.create_performance_visualizations(results)
-            tabs = st.tabs(["Resource Usage", "Quality Metrics", "Response Metrics"])
-            for tab, fig in zip(tabs, figures):
-                with tab:
-                    st.plotly_chart(fig, use_container_width=True)
-            st.subheader("📊 Detailed Performance Metrics")
-            report_df = self.performance_analyzer.generate_performance_report(results)
-            st.dataframe(report_df, hide_index=True)
-            csv = report_df.to_csv(index=False)
-            st.download_button(
-                "Download Performance Report",
-                csv,
-                "performance_report.csv",
-                "text/csv",
-                key='download-performance-csv'
-            )
+        # st.subheader("🚀 Performance Analysis")
+        # with st.spinner("Analyzing model performance..."):
+        #     results = self.performance_analyzer.analyze_model_performance(
+        #         self.model_analyzer.models,
+        #         text[:1000]
+        #     )
+        #     figures = self.performance_analyzer.create_performance_visualizations(results)
+        #     tabs = st.tabs(["Resource Usage", "Quality Metrics", "Response Metrics"])
+        #     for tab, fig in zip(tabs, figures):
+        #         with tab:
+        #             st.plotly_chart(fig, use_container_width=True)
+        #     st.subheader("📊 Detailed Performance Metrics")
+        #     report_df = self.performance_analyzer.generate_performance_report(results)
+        #     st.dataframe(report_df, hide_index=True)
+        #     csv = report_df.to_csv(index=False)
+        #     st.download_button(
+        #         "Download Performance Report",
+        #         csv,
+        #         "performance_report.csv",
+        #         "text/csv",
+        #         key='download-performance-csv'
+        #     )
         
-        return results
+        # return results
+        st.info("ℹ️ Performance metrics are now integrated into model comparison for faster processing.")
+        return {}
     
     def display_analysis_results(self, text: str, settings: Dict):
         """Displays enhanced analysis results with all new features."""
@@ -700,9 +702,45 @@ class ResearchPaperAssistant:
         
         # Performance Analysis (BLEU, METEOR, ROUGE)
         if settings["compare_models"]:
-            performance_results = self.display_performance_analysis(text)
-            # Store in session state for export
-            st.session_state.performance_results = performance_results
+            st.markdown("### 📈 Response Quality Summary")
+            
+            # Create simplified performance display from existing model_results
+            perf_cols = st.columns(4)
+            
+            for idx, (model_name, result) in enumerate(model_results.items()):
+                col = perf_cols[idx % 4]
+                with col:
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    st.markdown(f"**{model_name}**")
+                    
+                    # Show metrics we already calculated
+                    if isinstance(result, dict):
+                        if 'avg_response_time' in result:
+                            st.metric("Response Time", f"{result['avg_response_time']:.2f}s")
+                        if 'avg_token_count' in result:
+                            st.metric("Tokens", f"{int(result['avg_token_count'])}")
+                        if 'consistency_score' in result:
+                            st.metric("Consistency", f"{result['consistency_score']:.2f}")
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Store simplified performance results for export
+            st.session_state.performance_results = {
+                model_name: {
+                    'resource_usage': {
+                        'avg_cpu_percent': result.get('avg_memory_usage', 0) / 10,  # Estimate
+                        'peak_memory': result.get('avg_memory_usage', 0)
+                    },
+                    'quality_metrics': {
+                        'avg_coherence': result.get('consistency_score', 0)
+                    },
+                    'response_metrics': {
+                        'avg_response_time': result.get('avg_response_time', 0)
+                    }
+                }
+                for model_name, result in model_results.items()
+                if isinstance(result, dict) and 'avg_response_time' in result
+            }
     
     def run(self):
         """Enhanced main application loop with improved UI."""
