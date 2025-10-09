@@ -114,13 +114,20 @@ class ExcelExporter:
             df_years.to_excel(writer, sheet_name='Citation_Years', index=False)
         
         # Sheet 4: Citation Network Nodes
-        if 'network' in citation_data and citation_data['network'].get('nodes'):
-            network = citation_data['network']
-            df_nodes = pd.DataFrame({
-                'Node ID': range(1, len(network['nodes']) + 1),
-                'Citation': network['nodes']
-            })
-            df_nodes.to_excel(writer, sheet_name='Citation_Network_Nodes', index=False)
+        if 'network' in citation_data and citation_data['network'].get('citations_in_context'):
+            contexts = citation_data['network']['citations_in_context']
+            if contexts:
+                df_contexts = pd.DataFrame(contexts)
+                
+                # ✅ FIXED: Handle both old and new formats
+                if len(df_contexts.columns) == 4:
+                    # NLP version with relationship metadata
+                    df_contexts.columns = ['From Citation', 'To Citation', 'Context', 'Relationship']
+                else:
+                    # Regex-only version (backward compatible)
+                    df_contexts.columns = ['From Citation', 'To Citation', 'Context']
+                
+                df_contexts.to_excel(writer, sheet_name='Citation_Contexts', index=False)
         
         # Sheet 5: Citation Network Edges
         if 'network' in citation_data and citation_data['network'].get('edges'):
