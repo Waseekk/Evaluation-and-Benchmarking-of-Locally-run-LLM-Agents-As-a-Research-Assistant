@@ -65,11 +65,11 @@ class PerformanceAnalyzer:
         if self.models_loaded:
             return  # Already loaded
         
-        print("🔄 Loading quality analysis models (this may take a moment)...")
+        print("[emoji] Loading quality analysis models (this may take a moment)...")
         
         try:
             self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
-            print("✓ SentenceTransformer loaded")
+            print("[emoji] SentenceTransformer loaded")
         except Exception as e:
             print(f"Error loading SentenceTransformer: {str(e)}")
             self.encoder = None
@@ -81,7 +81,7 @@ class PerformanceAnalyzer:
             self.fact_check_tokenizer = AutoTokenizer.from_pretrained(
                 'microsoft/deberta-base-mnli', ignore_mismatched_sizes=True
             )
-            print("✓ Fact-checking model loaded")
+            print("[emoji] Fact-checking model loaded")
         except Exception as e:
             print(f"Error loading fact-checking model: {str(e)}")
             self.fact_check_model = None
@@ -90,14 +90,14 @@ class PerformanceAnalyzer:
         try:
             self.gpt2_tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
             self.gpt2_model = GPT2LMHeadModel.from_pretrained('gpt2')
-            print("✓ GPT-2 model loaded")
+            print("[emoji] GPT-2 model loaded")
         except Exception as e:
             print(f"Error loading GPT-2: {str(e)}")
             self.gpt2_model = None
             self.gpt2_tokenizer = None
         
         self.models_loaded = True
-        print("✅ All quality models loaded successfully")
+        print("[emoji] All quality models loaded successfully")
 
     def calculate_perplexity(self, text) -> float:
         try:
