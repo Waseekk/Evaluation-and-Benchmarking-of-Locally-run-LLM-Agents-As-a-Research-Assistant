@@ -24,6 +24,7 @@ nltk==3.9.1
 rouge-score==0.1.2
 spacy==3.7.2
 rapidfuzz==3.5.2
+scikit-learn==1.6.1
 
 # ML/AI Models
 torch==2.6.0
@@ -37,6 +38,9 @@ numpy==1.26.4
 networkx==3.4.2
 
 # System Utilities
-psutil
+psutil==7.1.0
 python-dotenv==1.0.1
 requests==2.32.3
+
+# Post-install required:
+# python -m spacy download en_core_web_sm
