@@ -48,6 +48,9 @@ env/
 # Streamlit
 .streamlit/
 
+# Claude Code
+.claude/
+
 # Model files and caches
 *.pt
 *.pth
