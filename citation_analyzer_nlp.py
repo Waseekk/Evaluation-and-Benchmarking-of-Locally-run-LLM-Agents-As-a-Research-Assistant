@@ -48,7 +48,7 @@ class EnhancedCitationAnalyzerNLP:
         
         Args:
             enable_nlp: Use NLP features (spaCy). Falls back to regex if False.
-            spacy_model: spaCy model to use (default: en_core_web_sm)
+            spacy_model: spaCy model to use  en_core_web_sm
         """
         self.enable_nlp = enable_nlp and SPACY_AVAILABLE
         self.enable_fuzzy = RAPIDFUZZ_AVAILABLE
@@ -63,15 +63,28 @@ class EnhancedCitationAnalyzerNLP:
                 logger.warning(f"spaCy model '{spacy_model}' not found. Falling back to regex.")
                 self.enable_nlp = False
         
-        # Citation patterns (same as before, but with position tracking)
+        # Enhanced citation patterns with better accuracy
         self.citation_patterns = {
-            "doi": r'(?:https?://)?(?:dx\.)?doi\.org/([^\s]+)',
-            "arxiv": r'arXiv:(\d{4}\.\d{4,5}(?:v\d+)?)',
-            "url": r'https?://[^\s<>"]+|www\.[^\s<>"]+',
-            "numbered": r'\[\d+\]',
-            "author_year": r'\([A-Za-z]+(?: and [A-Za-z]+)?(?: et al\.)?,?\s+\d{4}\)',
-            "harvard": r'[A-Z][a-z]+\s+\(\d{4}\)',
-            "inline": r'[A-Z][a-z]+ \d{4}'
+            # DOI patterns
+            "doi": r'(?:https?://)?(?:dx\.)?doi\.org/[^\s,;)]+',
+
+            # arXiv patterns
+            "arxiv": r'arXiv:\d{4}\.\d{4,5}(?:v\d+)?',
+
+            # URL patterns (general web citations)
+            "url": r'https?://[^\s<>"()]+',
+
+            # Numbered citations: [1], [2,3], [1-3], etc.
+            "numbered": r'\[\d+(?:\s*[,;-]\s*\d+)*\]',
+
+            # Author-year in parentheses: (Smith et al., 2020)
+            "author_year": r'\([A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)*(?:\s+et\s+al\.?)?,?\s+\d{4}[a-z]?\)',
+
+            # Harvard style: Smith (2020), Jones and Brown (2021)
+            "harvard": r'[A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)*\s+\(\d{4}[a-z]?\)',
+
+            # Inline author-year: Smith 2020, Jones et al. 2021
+            "inline": r'[A-Z][a-z]+(?:\s+et\s+al\.?)?\s+\d{4}(?=\s|[,;.]|$)'
         }
         
         # Year extraction pattern with boundaries
@@ -145,31 +158,40 @@ class EnhancedCitationAnalyzerNLP:
         
         # Compile results
         results = self._compile_results(deduplicated_citations, year_distribution, network)
-        
+
         # Add timing information
         results['timing'] = {
             'total_time': time.time() - start_time,
             **self.timing_stats
         }
-        
-        # Log performance
+
+        # Log performance with details
         logger.info(f"✓ Citation analysis completed in {results['timing']['total_time']:.3f}s")
-        
+        logger.info(f"  - Found {results['total_count']} total citations ({results['unique_citations']} unique)")
+        logger.info(f"  - Network: {network['metrics']['node_count']} nodes, {network['metrics']['edge_count']} edges")
+        logger.info(f"  - Year range: {min(year_distribution.keys()) if year_distribution else 'N/A'} - {max(year_distribution.keys()) if year_distribution else 'N/A'}")
+
         return results
     
     def _extract_citations_with_positions(self, text: str) -> Dict[str, List[Dict]]:
         """
         Extract citations with character positions to prevent overlaps.
-        
+
         Returns:
             Dictionary: {citation_type: [{'text': str, 'start': int, 'end': int}]}
         """
         citations_by_type = defaultdict(list)
-        
+
         for citation_type, pattern in self.citation_patterns.items():
             for match in re.finditer(pattern, text, re.IGNORECASE):
+                citation_text = match.group()
+
+                # Filter out false positives
+                if self._is_false_positive_citation(citation_text, match.start(), text):
+                    continue
+
                 citations_by_type[citation_type].append({
-                    'text': match.group(),
+                    'text': citation_text,
                     'start': match.start(),
                     'end': match.end(),
                     'type': citation_type
@@ -210,6 +232,35 @@ class EnhancedCitationAnalyzerNLP:
     def _citations_overlap(self, cite1: Dict, cite2: Dict) -> bool:
         """Check if two citations overlap in position."""
         return not (cite1['end'] <= cite2['start'] or cite2['end'] <= cite1['start'])
+
+    def _is_false_positive_citation(self, citation_text: str, position: int, full_text: str) -> bool:
+        """
+        Filter out false positive citations - CONSERVATIVE approach.
+
+        Returns True if this is likely NOT a real citation.
+        """
+        # Only filter obvious false positives
+        false_positive_patterns = [
+            # Standalone prepositions with years
+            r'^(of|in|on|at|by)\s+\d{4}$',  # "of 2000", "in 2020"
+
+            # Month abbreviations with day numbers
+            r'^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[-\s]\d{1,2}$',  # "Nov-23"
+
+            # Standalone numbers
+            r'^\d+$',
+            r'^\d+\.\d+$',  # "1.2"
+        ]
+
+        for fp_pattern in false_positive_patterns:
+            if re.match(fp_pattern, citation_text, re.IGNORECASE):
+                return True
+
+        # Filter very short text (1-2 chars)
+        if len(citation_text) <= 2:
+            return True
+
+        return False
     
     def _deduplicate_citations(self, citations_by_type: Dict[str, List[Dict]]) -> List[Dict]:
         """
@@ -303,9 +354,9 @@ class EnhancedCitationAnalyzerNLP:
         
         for match in year_matches:
             year = int(match.group(1))
-            
-            # Basic range check
-            if not (1900 <= year <= 2024):
+
+            # Basic range check (extended to 2025)
+            if not (1900 <= year <= 2025):
                 continue
             
             # Check for false positive patterns
@@ -420,86 +471,90 @@ class EnhancedCitationAnalyzerNLP:
         return False
     
     def _build_citation_network_nlp(
-        self, 
-        text: str, 
+        self,
+        text: str,
         citations: List[Dict]
     ) -> Dict[str, Any]:
         """
-        Build citation network with NLP-enhanced relationship detection.
-        
+        Build citation network based on co-occurrence in text chunks.
+
         Features:
-        1. Sentence-level analysis (not paragraph)
-        2. Relationship type detection (builds_on, conflicts, parallel, supports)
-        3. Document-level tracking (cross-section citations)
-        4. Sentence-boundary context extraction
+        1. Paragraph-level co-occurrence (not just sentence)
+        2. Proximity-based relationships
+        3. All unique citations added as nodes
+        4. Context extraction for citation relationships
         """
         G = nx.DiGraph()
         citations_in_context = []
-        
-        if self.enable_nlp and self.nlp:
-            # Use spaCy for sentence segmentation
-            doc = self.nlp(text)
-            sentences = list(doc.sents)
-        else:
-            # Fallback: split by periods (crude)
-            sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
-            # Wrap in simple objects with .text attribute
-            class SimpleSent:
-                def __init__(self, text):
-                    self.text = text
-                    self.start_char = 0
-                    self.end_char = len(text)
-            sentences = [SimpleSent(s) for s in sentences]
-        
-        # Build citation position index
-        citation_positions = {
-            (c['start'], c['end']): c for c in citations
-        }
-        
-        # Process each sentence
-        for sent in sentences:
-            sent_start = sent.start_char if hasattr(sent, 'start_char') else 0
-            sent_end = sent.end_char if hasattr(sent, 'end_char') else len(sent.text)
-            
-            # Find citations in this sentence
-            citations_in_sent = []
-            for (start, end), citation in citation_positions.items():
-                if sent_start <= start < sent_end:
-                    citations_in_sent.append(citation)
-            
-            # Need at least 2 citations to create edges
-            if len(citations_in_sent) < 2:
-                continue
-            
-            # Sort by position
-            citations_in_sent.sort(key=lambda c: c['start'])
-            
-            # Determine relationship type
-            relationship = self._determine_relationship(sent.text)
-            
-            # Create edges between consecutive citations
-            for i in range(len(citations_in_sent) - 1):
-                cite1 = citations_in_sent[i]['text']
-                cite2 = citations_in_sent[i + 1]['text']
-                
-                # Add edge with relationship metadata
-                if relationship == 'parallel':
-                    # Parallel citations: undirected (both ways)
-                    G.add_edge(cite1, cite2, relationship=relationship)
-                    G.add_edge(cite2, cite1, relationship=relationship)
-                else:
-                    # Directed relationship
-                    G.add_edge(cite1, cite2, relationship=relationship)
-                
-                # Extract sentence-level context (full sentence)
-                citations_in_context.append({
-                    'from': cite1,
-                    'to': cite2,
-                    'context': sent.text.strip(),
-                    'relationship': relationship
-                })
-        
-        # ✅ FIXED: Build network data with BACKWARD COMPATIBILITY
+
+        # Split text into paragraphs (better than sentences for citation networks)
+        paragraphs = text.split('\n\n')
+
+        # Build citation position index with paragraph tracking
+        citation_to_paragraphs = {}
+        for citation in citations:
+            cite_text = citation['text']
+            if cite_text not in citation_to_paragraphs:
+                citation_to_paragraphs[cite_text] = []
+
+        # Find which paragraphs each citation appears in
+        current_pos = 0
+        for para_idx, paragraph in enumerate(paragraphs):
+            para_start = current_pos
+            para_end = current_pos + len(paragraph)
+
+            for citation in citations:
+                if para_start <= citation['start'] < para_end:
+                    cite_text = citation['text']
+                    if cite_text not in citation_to_paragraphs:
+                        citation_to_paragraphs[cite_text] = []
+                    citation_to_paragraphs[cite_text].append({
+                        'para_idx': para_idx,
+                        'para_text': paragraph[:500]  # First 500 chars
+                    })
+
+            current_pos = para_end + 2  # +2 for \n\n
+
+        # Add all citations as nodes
+        for cite_text in citation_to_paragraphs.keys():
+            if not G.has_node(cite_text):
+                G.add_node(cite_text)
+
+        # Create edges based on co-occurrence in paragraphs
+        cite_list = list(citation_to_paragraphs.keys())
+        for i in range(len(cite_list)):
+            for j in range(i + 1, len(cite_list)):
+                cite1 = cite_list[i]
+                cite2 = cite_list[j]
+
+                # Check if they appear in same paragraph
+                paras1 = set(p['para_idx'] for p in citation_to_paragraphs[cite1])
+                paras2 = set(p['para_idx'] for p in citation_to_paragraphs[cite2])
+                shared_paras = paras1 & paras2
+
+                if shared_paras:
+                    # They co-occur in at least one paragraph
+                    for para_idx in shared_paras:
+                        # Get the paragraph text
+                        para_info = next((p for p in citation_to_paragraphs[cite1] if p['para_idx'] == para_idx), None)
+                        if para_info:
+                            para_text = para_info['para_text']
+                            relationship = self._determine_relationship(para_text)
+
+                            # Add bidirectional edges for co-occurrence
+                            G.add_edge(cite1, cite2, relationship=relationship)
+                            G.add_edge(cite2, cite1, relationship=relationship)
+
+                            # Record context
+                            citations_in_context.append({
+                                'from': cite1,
+                                'to': cite2,
+                                'context': para_text,
+                                'relationship': relationship
+                            })
+                            break  # Only need one context per pair
+
+        # ✅ Build network data with BACKWARD COMPATIBILITY
         network_data = {
             'nodes': list(G.nodes()),
             # OLD FORMAT: Simple tuples for backward compatibility with NetworkX
