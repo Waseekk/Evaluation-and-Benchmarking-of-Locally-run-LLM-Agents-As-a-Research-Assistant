@@ -127,6 +127,8 @@ class EnhancedChatInterface:
             st.session_state.key_points = []
         if "chat_mode" not in st.session_state:
             st.session_state.chat_mode = "general"
+        if "comparison_results" not in st.session_state:
+            st.session_state.comparison_results = None  # Stores latest comparison: {question, responses}
 
     def initialize_rag(self, paper_content: str) -> bool:
         """Initialize RAG processor with paper content."""
@@ -299,7 +301,7 @@ Keep each section focused and clear."""
             - **Technical**: Deep dive into technical details
             """)
 
-        chat_tab, summary_tab = st.tabs(["💬 Chat", "📝 Summary & Key Points"])
+        chat_tab, compare_tab, summary_tab = st.tabs(["💬 Chat", "🔄 Compare Modes", "📝 Summary & Key Points"])
 
         with chat_tab:
             # Display chat history with beautified responses
@@ -307,6 +309,15 @@ Keep each section focused and clear."""
                 with st.chat_message(message["role"]):
                     # ✨ Beautify assistant responses
                     if message["role"] == "assistant":
+                        # Display mode badge if available
+                        if "mode" in message:
+                            mode_emoji = {
+                                "general": "📖",
+                                "focused": "🎯",
+                                "technical": "⚙️"
+                            }
+                            st.caption(f"{mode_emoji.get(message['mode'], '📝')} {message['mode'].title()} Mode")
+
                         cleaned_content = self.beautify_response(message["content"])
                         st.markdown(cleaned_content)
                     else:
@@ -314,6 +325,9 @@ Keep each section focused and clear."""
 
             # Chat input
             if prompt := st.chat_input("Ask a question about the paper..."):
+                # Use the current mode from sidebar
+                active_mode = st.session_state.chat_mode
+
                 st.session_state.chat_history.append({"role": "user", "content": prompt})
 
                 with st.chat_message("user"):
@@ -330,7 +344,7 @@ Keep each section focused and clear."""
                     messages = [
                         ("system", self.create_system_prompt(
                             st.session_state.paper_content,
-                            st.session_state.chat_mode
+                            active_mode
                         )),
                         ("human", enhanced_prompt)
                     ]
@@ -347,15 +361,24 @@ Keep each section focused and clear."""
                             # ✨ Beautify the response before displaying
                             cleaned_response = self.beautify_response(str(response))
 
+                            # Display mode badge
+                            mode_emoji = {
+                                "general": "📖",
+                                "focused": "🎯",
+                                "technical": "⚙️"
+                            }
+                            st.caption(f"{mode_emoji.get(active_mode, '📝')} {active_mode.title()} Mode")
+
                             st.markdown(cleaned_response)
 
                             # Show response time
                             st.caption(f"⏱️ Response time: {response_time:.2f}s")
 
-                            # Save to history
+                            # Save to history with mode information
                             st.session_state.chat_history.append({
                                 "role": "assistant",
-                                "content": str(response)  # Store original for summary generation
+                                "content": str(response),  # Store original for summary generation
+                                "mode": active_mode  # Store which mode was used
                             })
 
                             # Extract key points
@@ -368,8 +391,123 @@ Keep each section focused and clear."""
                     if not self.rag_initialized:
                         st.info("ℹ️ Note: Enhanced paper analysis is not available. Using basic chat mode.")
 
+        with compare_tab:
+            self.display_compare_modes_tab(selected_model)
+
         with summary_tab:
             self.display_summary_tab(selected_model)
+
+    def display_compare_modes_tab(self, selected_model: str):
+        """Display the mode comparison tab with side-by-side responses."""
+        st.markdown("### 🔄 Compare Modes")
+
+        st.info("""
+        💡 **How to use Mode Comparison:**
+
+        Enter a question below and click "Compare All Modes" to see responses from all 3 modes side-by-side:
+        - 📖 **General**: Easy-to-understand explanations
+        - 🎯 **Focused**: Detailed, expert-level analysis
+        - ⚙️ **Technical**: Deep technical details
+        """)
+
+        # Input for comparison question
+        comparison_question = st.text_input(
+            "Enter your question:",
+            placeholder="e.g., What is the main contribution of this paper?",
+            key="comparison_question_input"
+        )
+
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            compare_button = st.button("🔄 Compare All Modes", type="primary", disabled=not comparison_question)
+        with col2:
+            if st.session_state.comparison_results:
+                if st.button("🗑️ Clear Results"):
+                    st.session_state.comparison_results = None
+                    st.rerun()
+
+        # Generate comparisons when button is clicked
+        if compare_button and comparison_question:
+            st.divider()
+            st.markdown(f"#### 📝 Question: *{comparison_question}*")
+
+            modes = ["general", "focused", "technical"]
+            mode_info = {
+                "general": {"emoji": "📖", "name": "General"},
+                "focused": {"emoji": "🎯", "name": "Focused"},
+                "technical": {"emoji": "⚙️", "name": "Technical"}
+            }
+
+            responses = {}
+
+            # Generate responses for all 3 modes
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+
+            for idx, mode in enumerate(modes):
+                progress_text.text(f"Generating {mode_info[mode]['name']} mode response...")
+
+                try:
+                    # Prepare prompt with RAG if available
+                    if self.rag_initialized:
+                        relevant_chunks = self.rag_processor.get_relevant_chunks(comparison_question)
+                        enhanced_prompt = self.rag_processor.create_enhanced_prompt(comparison_question, relevant_chunks)
+                    else:
+                        enhanced_prompt = comparison_question
+
+                    messages = [
+                        ("system", self.create_system_prompt(
+                            st.session_state.paper_content,
+                            mode
+                        )),
+                        ("human", enhanced_prompt)
+                    ]
+
+                    chain = ChatPromptTemplate.from_messages(messages) | self.models[selected_model]
+                    response = chain.invoke({})
+                    cleaned_response = self.beautify_response(str(response))
+                    responses[mode] = cleaned_response
+
+                except Exception as e:
+                    responses[mode] = f"❌ Error: {str(e)}"
+
+                progress_bar.progress((idx + 1) / len(modes))
+
+            progress_text.empty()
+            progress_bar.empty()
+
+            # Store results in session state
+            st.session_state.comparison_results = {
+                "question": comparison_question,
+                "responses": responses
+            }
+
+            st.success("✅ All modes completed!")
+
+        # Display comparison results if they exist
+        if st.session_state.comparison_results:
+            st.divider()
+            st.markdown(f"#### 📝 Question: *{st.session_state.comparison_results['question']}*")
+
+            # Create 3 columns for the responses
+            col1, col2, col3 = st.columns(3)
+
+            modes = ["general", "focused", "technical"]
+            mode_info = {
+                "general": {"emoji": "📖", "name": "General", "col": col1},
+                "focused": {"emoji": "🎯", "name": "Focused", "col": col2},
+                "technical": {"emoji": "⚙️", "name": "Technical", "col": col3}
+            }
+
+            responses = st.session_state.comparison_results["responses"]
+
+            for mode in modes:
+                with mode_info[mode]["col"]:
+                    st.markdown(f"**{mode_info[mode]['emoji']} {mode_info[mode]['name']} Mode**")
+                    if mode in responses:
+                        st.markdown(responses[mode])
+                    else:
+                        st.warning("No response available")
 
     def display_summary_tab(self, selected_model: str):
         """Display the summary tab with key points and chat summary."""
