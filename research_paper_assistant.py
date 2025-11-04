@@ -14,7 +14,6 @@ Required dependencies for full hybrid features:
 - sentence-transformers (pip install sentence-transformers)
 - spacy (pip install spacy && python -m spacy download en_core_web_sm)
 - sklearn (usually included with scikit-learn)
-
 If dependencies are missing, the system automatically falls back to basic citation analysis.
 
 Usage:
@@ -31,11 +30,11 @@ from pdf_processor import PDFProcessor
 # ✨ NEW: Using Hybrid Semantic Citation Analyzer
 from citation_analyzer_hybrid import HybridSemanticCitationAnalyzer
 
-from structure_analyzer import StructureAnalyzer
+#from structure_analyzer import StructureAnalyzer
 from model_comparison_analyzer import ModelComparisonAnalyzer
-from enhanced_chat_interface_2 import EnhancedChatInterface
+from enhanced_chat_interface import EnhancedChatInterface
 from performance_analyzer import PerformanceAnalyzer
-from excel_exporter import ExcelExporter
+#from excel_exporter import ExcelExporter
 
 class ResearchPaperAssistantHybrid:
     """Enhanced main class for the Research Paper Analysis Assistant with Hybrid Citation Analysis."""
@@ -235,7 +234,7 @@ class ResearchPaperAssistantHybrid:
     def setup_page(self):
         """Configures the Streamlit page layout with enhanced styling."""
         st.set_page_config(
-            page_title="Research Paper Analysis Assistant (Hybrid Citation)",
+            page_title="Research Paper Analysis Assistant",
             page_icon="📚",
             layout="wide"
         )
@@ -371,11 +370,11 @@ class ResearchPaperAssistantHybrid:
                 from citation_analyzer import EnhancedCitationAnalyzer
                 self.citation_analyzer = EnhancedCitationAnalyzer()
 
-        self.structure_analyzer = StructureAnalyzer()
+       # self.structure_analyzer = StructureAnalyzer()
         self.model_analyzer = ModelComparisonAnalyzer()
         self.chat_interface = EnhancedChatInterface()
         self.performance_analyzer = PerformanceAnalyzer()
-        self.excel_exporter = ExcelExporter()
+        #self.excel_exporter = ExcelExporter()
 
     def setup_session_state(self):
         """Initializes enhanced session state variables."""
