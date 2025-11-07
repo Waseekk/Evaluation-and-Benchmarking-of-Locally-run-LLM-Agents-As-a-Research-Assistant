@@ -8,6 +8,15 @@ import re
 from typing import List, Dict
 from langchain_ollama import ChatOllama
 import plotly.graph_objects as go
+# ✨ DEBUG: Import logger
+try:
+    from prompt_debug_logger import prompt_logger, log_analyzer_receipt
+except ImportError:
+    # Fallback if logger not available
+    import logging
+    prompt_logger = logging.getLogger(__name__)
+    def log_analyzer_receipt(*args, **kwargs):
+        pass
 
 class ModelComparisonAnalyzer:
     """Enhanced comparison of different language models."""
@@ -449,7 +458,9 @@ Keep your response concise and well-organized."""
         Returns:
             Dictionary with analysis results and metrics
         """
-        
+        # ✨ DEBUG: Log what analyzer receives
+        log_analyzer_receipt(model_name, analysis_type, custom_prompts or {})
+
         model_results = {
             'responses': [],
             'response_times': [],
@@ -765,20 +776,20 @@ Keep your response concise and well-organized."""
             showlegend=False
         )
         figures.append(token_counts)
-        
-        consistency = go.Figure(data=[
-            go.Bar(
-                x=list(results.keys()),
-                y=[m.get('consistency_score', 0) for m in results.values()],
-                marker_color='rgb(55, 83, 109)'
-            )
-        ])
-        consistency.update_layout(
-            title="Model Consistency Scores",
-            yaxis_title="Consistency Score",
-            showlegend=False
-        )
-        figures.append(consistency)
+
+        # consistency = go.Figure(data=[
+        #     go.Bar(
+        #         x=list(results.keys()),
+        #         y=[m.get('consistency_score', 0) for m in results.values()],
+        #         marker_color='rgb(55, 83, 109)'
+        #     )
+        # ])
+        # consistency.update_layout(
+        #     title="Model Consistency Scores",
+        #     yaxis_title="Consistency Score",
+        #     showlegend=False
+        # )
+        # figures.append(consistency)
         return figures
         
     def generate_performance_report(self, results: Dict) -> pd.DataFrame:

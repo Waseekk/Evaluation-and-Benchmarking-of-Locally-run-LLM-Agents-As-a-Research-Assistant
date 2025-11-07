@@ -29,6 +29,11 @@ from datetime import datetime
 from pdf_processor import PDFProcessor
 # ✨ NEW: Using Hybrid Semantic Citation Analyzer
 from citation_analyzer_hybrid import HybridSemanticCitationAnalyzer
+# ✨ DEBUG: Prompt debugging logger
+from prompt_debug_logger import (
+    prompt_logger, log_prompt_edit, log_session_state,
+    log_settings_dict, log_custom_prompts, log_analysis_start
+)
 
 #from structure_analyzer import StructureAnalyzer
 from model_comparison_analyzer import ModelComparisonAnalyzer
@@ -496,8 +501,36 @@ class ResearchPaperAssistantHybrid:
                 min_value=1,
                 max_value=5,
                 value=3,
-                help="Controls how detailed the analysis should be"
+                help="""Controls the depth and detail of model analysis:
+
+Level 1-2: Quick overview (faster processing)
+Level 3: Balanced analysis with good detail (recommended)
+Level 4-5: Comprehensive deep analysis (takes longer)
+
+Note: This setting affects the complexity of prompts sent to models."""
             )
+
+            # ✨ Semantic Similarity Threshold Slider
+            st.markdown("### 🔗 Citation Network Settings")
+            similarity_threshold = st.slider(
+                "Similarity Threshold",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.5,
+                step=0.05,
+                help="""Controls how similar citations must be to connect in the network graph:
+
+• 0.0-0.3 (Loose): Many connections, explores broad relationships. Use for comprehensive literature review.
+
+• 0.4-0.6 (Moderate): Balanced view with meaningful connections. Recommended for most analyses.
+
+• 0.7-1.0 (Strict): Only very strong relationships. Use to identify core closely-related citations.
+
+Lower values = more citations in network graph
+Higher values = fewer but stronger connections"""
+            )
+            st.caption(f"💡 Current: {similarity_threshold:.2f} - {'Loose' if similarity_threshold < 0.4 else 'Moderate' if similarity_threshold < 0.7 else 'Strict'} filtering")
+
             st.divider()
             # st.markdown("### 🎯 Analysis Focus")
             # analyze_citations = st.checkbox("Citation Analysis", value=True)
@@ -518,7 +551,13 @@ class ResearchPaperAssistantHybrid:
                         "methodology": "🔬 Methodology Focus",
                         "results": "📈 Results Focus"
                     }[x],
-                    help="Select which analysis prompt the models should use",
+                    help="""Select which aspect of the paper to analyze:
+
+• General Analysis: Comprehensive overview covering objectives, methods, findings, strengths, and areas for improvement. Best for overall paper understanding.
+
+• Methodology Focus: Deep dive into research methods, experimental design, data collection, reproducibility, and methodological rigor. Best for evaluating research approach.
+
+• Results Focus: Detailed examination of findings, data presentation, statistical analysis, and how well results support conclusions. Best for assessing research outcomes.""",
                     horizontal=False
                 )
             else:
@@ -554,7 +593,16 @@ class ResearchPaperAssistantHybrid:
             enable_quality_metrics = st.checkbox(
                 "📊 Detailed Quality Metrics",
                 value=False,
-                help="Enable BLEU, ROUGE, Perplexity analysis (adds ~20 seconds)"
+                help="""Enable comprehensive quality analysis with NLP metrics:
+
+• BLEU: Measures text similarity and translation quality
+• ROUGE: Evaluates summary quality and overlap
+• METEOR: Advanced semantic similarity metric
+• Perplexity: Measures text coherence and fluency
+
+⚠️ Processing time: Adds ~20-30 seconds to analysis
+💡 Use when: You need detailed quantitative comparison of model outputs
+🚀 Skip when: You want faster results with basic metrics only"""
             )
             return {
                 "depth": analysis_depth,
@@ -567,7 +615,11 @@ class ResearchPaperAssistantHybrid:
                 "enable_quality_metrics": enable_quality_metrics,
                 "enable_semantic": enable_semantic,
                 "enable_stance": enable_stance,
-                "enable_purpose": enable_purpose
+                "enable_purpose": enable_purpose,
+                "similarity_threshold": similarity_threshold,
+                "prompt_general": st.session_state.get("prompt_general"),
+                "prompt_methodology": st.session_state.get("prompt_methodology"),
+                "prompt_results": st.session_state.get("prompt_results")
             }
 
     def create_export_section(self):
@@ -831,6 +883,10 @@ class ResearchPaperAssistantHybrid:
         # ✨ ENHANCED Citation Analysis with Hybrid Analyzer
         if settings["analyze_citations"]:
             with st.spinner("Analyzing citations with hybrid semantic analysis..."):
+                # Update similarity threshold from settings
+                if hasattr(self.citation_analyzer, 'similarity_threshold'):
+                    self.citation_analyzer.similarity_threshold = settings.get("similarity_threshold", 0.5)
+
                 citation_metrics = self.citation_analyzer.extract_citations(text)
 
                 # Store in session state for export
@@ -855,10 +911,11 @@ class ResearchPaperAssistantHybrid:
                         features_enabled.append("False Positive Filtering")
 
                     method = citation_metrics.get('method', 'standard')
+                    threshold = settings.get("similarity_threshold", 0.5)
                     if features_enabled:
-                        st.info(f"🔬 **Method**: {method} | **Features**: {', '.join(features_enabled)}")
+                        st.info(f"🔬 **Method**: {method} | **Features**: {', '.join(features_enabled)} | **Similarity Threshold**: {threshold:.2f}")
                     else:
-                        st.info(f"🔬 **Method**: {method}")
+                        st.info(f"🔬 **Method**: {method} | **Similarity Threshold**: {threshold:.2f}")
 
                 # Display citation count metrics
                 cols = st.columns(5)
@@ -1074,6 +1131,12 @@ class ResearchPaperAssistantHybrid:
                 st.markdown("**📈 Results Focus:**")
                 st.code(settings.get("prompt_results", "Default"), language="markdown")
 
+            # ✨ DEBUG: Log session state before analysis
+            log_session_state(st.session_state)
+
+            # ✨ DEBUG: Log settings dict
+            log_settings_dict(settings)
+
             progress_bar = st.progress(0)
             status_text = st.empty()
 
@@ -1114,6 +1177,9 @@ class ResearchPaperAssistantHybrid:
                     "methodology": settings.get("prompt_methodology"),
                     "results": settings.get("prompt_results")
                 }
+
+                # ✨ DEBUG: Log custom prompts
+                log_custom_prompts(custom_prompts)
 
                 result = self.model_analyzer.analyze_paper_single_model(
                     text,
@@ -1336,7 +1402,7 @@ class ResearchPaperAssistantHybrid:
 
     def run(self):
         """Enhanced main application loop with improved UI."""
-        st.title("📚 Research Paper Analysis Assistant (Hybrid Citation)")
+        st.title("A Multi-Model Framework for Research Paper Analysis with Semantic Citation Detection and RAG-Enhanced Understanding")
         st.caption("Advanced PDF Analysis with Hybrid Semantic Citation Analysis, Deepseek, Llama and Mistral models")
 
         settings = self.create_sidebar()
@@ -1433,6 +1499,9 @@ Focus on specific data points and quantitative measures."""
                         help="Prompt for overall paper analysis",
                         key="prompt_general_editor"
                     )
+                    # Log the change
+                    old_value = st.session_state.get("prompt_general", "")
+                    log_prompt_edit("general", old_value, prompt_general)
                     st.session_state.prompt_general = prompt_general
                 with col2:
                     st.markdown("<br>", unsafe_allow_html=True)
@@ -1459,6 +1528,9 @@ Cite specific evidence from the paper."""
                         help="Prompt for methodology-focused analysis",
                         key="prompt_methodology_editor"
                     )
+                    # Log the change
+                    old_value = st.session_state.get("prompt_methodology", "")
+                    log_prompt_edit("methodology", old_value, prompt_methodology)
                     st.session_state.prompt_methodology = prompt_methodology
                 with col2:
                     st.markdown("<br>", unsafe_allow_html=True)
@@ -1485,6 +1557,9 @@ Provide evidence-based critique with examples."""
                         help="Prompt for results-focused analysis",
                         key="prompt_results_editor"
                     )
+                    # Log the change
+                    old_value = st.session_state.get("prompt_results", "")
+                    log_prompt_edit("results", old_value, prompt_results)
                     st.session_state.prompt_results = prompt_results
                 with col2:
                     st.markdown("<br>", unsafe_allow_html=True)

@@ -1,7 +1,7 @@
-from research_paper_assistant import ResearchPaperAssistant
+from research_paper_assistant import ResearchPaperAssistantHybrid
 
 def main():
-    assistant = ResearchPaperAssistant()
+    assistant = ResearchPaperAssistantHybrid()
     assistant.run()
 
 if __name__ == "__main__":

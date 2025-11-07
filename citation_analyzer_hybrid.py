@@ -74,14 +74,16 @@ class HybridSemanticCitationAnalyzer:
         'al', 'et', 'and', 'or', 'but', 'nor', 'yet', 'so'
     }
 
-    def __init__(self, use_embeddings: bool = True, enable_spacy: bool = True, 
-                 log_file: str = 'citation_analyzer.log', log_level=logging.INFO):
+    def __init__(self, use_embeddings: bool = True, enable_spacy: bool = True,
+                 similarity_threshold: float = 0.5, log_file: str = 'citation_analyzer.log',
+                 log_level=logging.INFO):
         """
         Initialize the hybrid citation analyzer.
 
         Args:
             use_embeddings: If True, uses sentence-transformers for semantic similarity
             enable_spacy: If True, uses spaCy for better sentence segmentation
+            similarity_threshold: Minimum cosine similarity (0-1) to connect citations in network
             log_file: Path to log file (default: 'citation_analyzer.log')
             log_level: Logging level (default: logging.INFO)
         """
@@ -205,9 +207,10 @@ class HybridSemanticCitationAnalyzer:
 
         self.use_embeddings = use_embeddings
         self.enable_spacy = enable_spacy
+        self.similarity_threshold = similarity_threshold
         self.embedding_model = None
         self.nlp = None
-        
+
         # Performance tracking
         self.timing_stats = {}
         
@@ -841,8 +844,8 @@ class HybridSemanticCitationAnalyzer:
                 for i in range(len(citations)):
                     for j in range(i + 1, len(citations)):
                         similarity = similarity_matrix[i][j]
-                        
-                        if similarity > 0.5:  # Threshold for semantic similarity
+
+                        if similarity > self.similarity_threshold:  # Threshold for semantic similarity
                             cite1 = citations[i]
                             cite2 = citations[j]
                             
